@@ -1,1 +1,3 @@
 .venv
+data/experimenten/*
+!data/experimenten/.gitkeep
