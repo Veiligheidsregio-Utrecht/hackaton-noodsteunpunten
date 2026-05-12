@@ -20,7 +20,7 @@ Per experiment worden twee bestanden aangemaakt:
 {gemeente}_{experiment}.json — metadata (label, beschrijving, parameters)
 
 2. Start de app
-bashstreamlit run app.py
+streamlit run app.py
 De app opent automatisch in je browser op http://localhost:8501.
 3. Experimenten selecteren
 
