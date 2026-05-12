@@ -106,7 +106,7 @@ def scan_experiment_folder(folder: str) -> dict:
 
     return found
 
-@st.cache_data
+@st.cache_data(ttl=0)
 def load_gpkg_from_path(path: str) -> dict:
     import fiona
     layers = fiona.listlayers(path)
@@ -118,30 +118,43 @@ def get_center(gdf: gpd.GeoDataFrame) -> tuple:
     return ((b[1] + b[3]) / 2, (b[0] + b[2]) / 2)
 
 
-def build_sample_map(gdf_res: gpd.GeoDataFrame, gdf_park: gpd.GeoDataFrame, n: int = 300) -> folium.Map:
+def build_sample_map(gdf_res, gdf_park, n=300, 
+                     show_residents=True, show_parking=True, 
+                     selected_gemeenten=None):
+    
+    # Filter op gemeente
+    if selected_gemeenten and "gemeentenaam" in gdf_res.columns:
+        gdf_res = gdf_res[gdf_res["gemeentenaam"].isin(selected_gemeenten)]
+    
     m = folium.Map(location=get_center(gdf_res), zoom_start=13, tiles="CartoDB positron")
+    
     unique_lots = gdf_res["assigned_parking_lot"].dropna().unique()
     palette = px.colors.qualitative.Safe + px.colors.qualitative.Vivid
     lot_colors = {lot: palette[i % len(palette)] for i, lot in enumerate(unique_lots)}
 
-    for _, row in gdf_park.iterrows():
-        lid = row.get("parking_lot_id", row.name)
-        color = lot_colors.get(lid, "#0a5fc4")
-        folium.GeoJson(
-            row.geometry.__geo_interface__,
-            style_function=lambda _, c=color: {"fillColor": c, "color": "#0a2540", "weight": 2, "fillOpacity": 0.8},
-            tooltip=folium.Tooltip(f"<b>Punt {lid}</b>"),
-        ).add_to(m)
+    if show_parking:
+        for _, row in gdf_park.iterrows():
+            lid = row.get("parking_lot_id", row.name)
+            color = lot_colors.get(lid, "#0a5fc4")
+            geom = row.geometry.simplify(0.0001) if row.geometry.geom_type in ['Polygon', 'MultiPolygon'] else row.geometry
+            folium.GeoJson(
+                geom.__geo_interface__,
+                style_function=lambda _, c=color: {"fillColor": c, "color": "#0a2540", "weight": 2, "fillOpacity": 0.8},
+                tooltip=folium.Tooltip(f"<b>Punt {lid}</b>"),
+            ).add_to(m)
 
-    for _, row in gdf_res.sample(min(n, len(gdf_res)), random_state=42).iterrows():
-        lid = row.get("assigned_parking_lot")
-        color = lot_colors.get(lid, "#aaa")
-        folium.CircleMarker(
-            location=(row.geometry.y, row.geometry.x),
-            radius=3, color=color, fill=True,
-            fill_color=color, fill_opacity=0.6,
-            tooltip=f"Afstand: {row.get('distance_to_parking', '?')}m | Punt: {lid}",
-        ).add_to(m)
+    if show_residents:
+        sample = gdf_res.sample(min(n, len(gdf_res)), random_state=42)
+        for _, row in sample.iterrows():
+            lid = row.get("assigned_parking_lot")
+            color = lot_colors.get(lid, "#aaa")
+            folium.CircleMarker(
+                location=(row.geometry.y, row.geometry.x),
+                radius=3, color=color, fill=True,
+                fill_color=color, fill_opacity=0.6,
+                tooltip=f"Afstand: {row.get('distance_to_parking', '?')}m | Punt: {lid}",
+            ).add_to(m)
+    
     return m
 
 
@@ -259,6 +272,16 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+    st.markdown("---")
+    st.markdown("**Kaartlagen**")
+    show_residents = st.checkbox("Bewoners", value=True)
+    show_parking = st.checkbox("Distributiepunten", value=True)
+
+    st.markdown("---")
+    st.markdown("**Gemeente filter**")
+    # Verzamel alle gemeenten uit de geladen data
+    all_gemeenten = set()
+
 
 # ─────────────────────────────────────────────
 # Hoofdpagina
@@ -301,6 +324,19 @@ if not selected_data:
     st.error("Geen geldige experimenten geladen.")
     st.stop()
 
+for data in selected_data.values():
+    if "gemeentenaam" in data["residents"].columns:
+        all_gemeenten.update(data["residents"]["gemeentenaam"].dropna().unique())
+
+if all_gemeenten:
+    selected_gemeenten = st.multiselect(
+        "Gemeenten",
+        options=sorted(all_gemeenten),
+        default=sorted(all_gemeenten),
+    )
+else:
+    selected_gemeenten = []
+
 # ── Experiment beschrijvingen ──
 st.markdown('<div class="section-header">Experimenten</div>', unsafe_allow_html=True)
 desc_cols = st.columns(len(selected_data))
@@ -328,7 +364,12 @@ for i, (name, data) in enumerate(selected_data.items()):
     with map_cols[i]:
         st.markdown(f"<small><b>{data['meta']['label']}</b></small>", unsafe_allow_html=True)
         with st.spinner("Kaart opbouwen..."):
-            m = build_sample_map(data["residents"], data["parking_lots"])
+            m = build_sample_map(
+                    data["residents"], data["parking_lots"],
+                    show_residents=show_residents,
+                    show_parking=show_parking,
+                    selected_gemeenten=selected_gemeenten if selected_gemeenten else None,
+                )
             st_folium(m, width="100%", height=400, returned_objects=[], key=f"map_{i}_{name}")
 
 # ── Afstandsverdeling ──
