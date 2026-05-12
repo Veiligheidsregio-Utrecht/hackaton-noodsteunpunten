@@ -82,32 +82,29 @@ st.markdown("""
 # ─────────────────────────────────────────────
 
 def scan_experiment_folder(folder: str) -> dict:
-    """
-    Scan een map op .gpkg bestanden. Laad bijbehorende .json metadata als die bestaat.
-    Geeft dict terug: {bestandsnaam_zonder_ext: {label, description, path, ...}}
-    """
     folder_path = Path(folder)
     if not folder_path.exists():
         return {}
 
     found = {}
-    for gpkg_file in sorted(folder_path.glob("*.gpkg")):
-        name = gpkg_file.stem
-        json_file = folder_path / f"{name}.json"
-
-        meta = {"label": name, "description": "", "gemeente": "", "experiment": name}
+    for sub in sorted(folder_path.iterdir()):
+        if not sub.is_dir():
+            continue
+        gpkg_file = sub / "residents_parking_interview.gpkg"
+        if not gpkg_file.exists():
+            continue
+        json_file = sub / "residents_parking_interview.json"
+        meta = {"label": sub.name, "description": "", "gemeente": "", "experiment": sub.name}
         if json_file.exists():
             try:
                 with open(json_file, encoding="utf-8") as f:
                     meta.update(json.load(f))
             except Exception:
                 pass
-
         meta["path"] = str(gpkg_file)
-        found[name] = meta
+        found[sub.name] = meta
 
     return found
-
 
 @st.cache_data
 def load_gpkg_from_path(path: str) -> dict:
@@ -234,7 +231,7 @@ with st.sidebar:
 
     folder_input = st.text_input(
         "Map met experimenten",
-        value="data/processed/experimenten",
+        value="data/processed/qgis_output",
         help="Pad naar de map met .gpkg en .json bestanden (output van de notebook).",
     )
 
